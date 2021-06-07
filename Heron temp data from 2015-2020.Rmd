@@ -1,0 +1,1889 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+#Temp data from 2015-2020 (Heron Island) by Kristen Brown Oct 2020
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(Rmisc)
+library(lubridate)
+library(ggplot2)
+library(car)
+library(MASS)
+library(mgcv)
+library(MuMIn)
+library(emmeans)
+```
+
+#Harry's 5m
+```{r}
+a<-read.csv("/Users/imkri/Desktop/Postdoc/Species interactions project/Heron Island seawater temperature November 2019- August 2020 clean.csv", strip.white=T)
+a$Date_Time <- as.POSIXct(a$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+a$Date<- as.Date(a$Date)
+a
+```
+
+
+```{r}
+H5old<- read.delim("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/CTD Data/AllData_H5.txt", strip.white=T)
+H5old$Date_Time <- as.POSIXct(H5old$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+H5old$Date<- as.Date(H5old$Date, format = "%Y-%m-%d")
+head(H5old)
+```
+
+
+```{r}
+ab<- merge(a, H5old, by=c("Date_Time","Temperature", "Date"), all=T)
+head(ab)
+```
+
+```{r}
+c<-read.csv("/Users/imkri/Desktop/Postdoc/Species interactions project/Kristen Matt slope.csv", strip.white=T)
+c$Date<- as.Date(c$Date)
+#c$Date <- as.POSIXct(c$Date,usetz=TRUE)
+c$Date_Time<- as.POSIXct(paste(c$Date, c$TIME), "%Y-%m-%d hh:mm:ss")
+c$Date_Time <- as.POSIXct(c$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+c<- plyr::rename(c, c("TEMP"="Temperature"))
+c
+```
+
+
+```{r}
+c$Date<- as.Date(c$Date, format = "%Y-%m-%d")
+l <- with(c, which(Date=="2017-01-29", arr.ind=TRUE))
+c <- c[-l, ]
+n <- with(c, which(Date=="2017-02-01", arr.ind=TRUE))
+c <- c[-n, ]
+r <- with(c, which(Date=="2017-02-02", arr.ind=TRUE))
+c <- c[-r, ]
+j <- with(c, which(Date=="2017-02-03", arr.ind=TRUE))
+c <- c[-j, ]
+k <- with(c, which(Date=="2017-02-04", arr.ind=TRUE))
+c <- c[-k, ]
+m <- with(c, which(Date=="2017-09-11", arr.ind=TRUE))
+c <- c[-m, ]
+z <- with(c, which(Date=="2017-09-12", arr.ind=TRUE))
+c <- c[-z, ]
+c
+```
+
+```{r}
+d<-read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/Harry's_Shallow Nov 2018 to May 2019.csv", strip.white=T)
+d$Date<- as.Date(d$Date)
+d<- plyr::rename(d, c("Temp...C"="Temperature","Time..GMT.10.00"="Time"))
+#d$Date_Time <- as.POSIXct(c$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+d
+```
+
+```{r}
+abc<- merge(ab, c, by=c("Date_Time","Temperature", "Date"), all=T)
+head(abc)
+```
+
+
+```{r}
+abcd<- merge(abc, d, by=c("Date_Time","Temperature", "Date"), all=T)
+head(abcd)
+```
+
+```{r}
+abcd$hour <- as.POSIXlt(abcd$Date_Time)$hour
+abcd$day <- day(as.POSIXlt(abcd$Date_Time))
+abcd$month <- month(as.POSIXlt(abcd$Date_Time))
+abcd$year <- year(as.POSIXlt(abcd$Date_Time))
+abcd$Site <- "HB5"
+
+abcd<-abcd%>%
+  mutate(season= ifelse (month %in% c(6, 7, 8), "winter",
+                         ifelse(month %in% c(9, 10, 11), "spring",
+                                ifelse(month %in% c(12, 1, 2), "summer", 
+                                       ifelse(month %in% c(3, 4, 5), "autumn", NA))))) %>%
+    mutate(period= ifelse(year %in% c(2015) & month %in% c(9, 10, 11,12), "A",
+                          ifelse(year %in% c(2016) & month %in% c(1,2,3,4,5,6,7,8), "A",
+                        ifelse(year %in% c(2019) & month %in% c(9, 10, 11,12), "B", 
+                               ifelse(year %in% c(2020) & month %in% c(1,2,3,4,5,6,7,8), "B",NA))))) %>%
+  mutate(daynight= ifelse (hour %in% c(9,10,11,12,13,14), "day",
+         ifelse (hour %in% c(22,23,0,1,2,3), "night", NA))) 
+
+head(abcd)
+```
+
+```{r}
+abcd_Q3<-abcd%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q3 = quantile), probs = 0.975,na.rm=T)
+abcd_Q1<-abcd%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q1 = quantile), probs = 0.025,na.rm=T)
+abcd_2<-inner_join(abcd,abcd_Q3)
+abcd_2<-inner_join(abcd_2,abcd_Q1)
+abcd_2<- abcd_2 %>%
+  mutate(Temperature_clean=ifelse(Temperature < Q1 | Temperature >Q3, NA,Temperature))
+abcd_2
+```
+```{r}
+allH5dailyavg<-summarySE(abcd_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+#tempsumH5one$Date<- as.Date(tempsumH5one$Date, format = "%Y-%m-%d")
+allH5dailyavg
+```
+
+####Above MMM
+
+```{r}
+library(dplyr)
+tempsumH5period<-summarySE(abcd_2, measurevar="Temperature_clean", groupvars=c("Date","period"), na.rm=TRUE)
+tempsumH5period
+#allflat_2$year<-as.factor(allflat_2$year)
+#head(allflat_2)
+daysover32RF<-tempsumH5period%>%
+  dplyr::group_by(period) %>%
+  dplyr::summarise(count=sum(Temperature_clean > 28.3, na.rm=T))
+daysover32RF
+```
+
+
+###Slope
+```{r}
+slope<-abcd_2%>%
+  dplyr::group_by(period, season) %>%
+  dplyr::mutate(rownum = row_number()) %>% 
+  dplyr::summarise(slope = lm(Temperature_clean ~ rownum)$coefficients['rownum'])
+slope
+```
+
+
+```{r}
+library(plotrix)
+minmax_H5<-abcd_2%>%
+  group_by(period)%>%
+  summarize_at(vars(Temperature_clean), funs(mean, std.error,min, max), na.rm=T)
+minmax_H5
+```
+```{r}
+minmax_H5$Temp_amp <- (minmax_H5$max - minmax_H5$min)
+minmax_H5
+```
+
+```{r}
+library(plotrix)
+amp_H5<-minmax_H5%>%
+  group_by(period)%>%
+  summarize_at(vars(Temp_amp), funs(mean,std.error,sd), na.rm=T)
+amp_H5
+```
+
+```{r}
+tempsumH5<-summarySE(abcd_2, measurevar="Temperature_clean", groupvars=c("Date", "period", "Site"), na.rm=TRUE)
+tempsumH5
+```
+```{r}
+tempsumH5<-tempsumH5%>%
+  mutate(Hotspot= ifelse(Temperature_clean >=28.3, Temperature_clean-27.3, 0))
+tempsumH5
+```
+```{r}
+#write.csv(tempsumH5,"H5 hotspot.csv")
+```
+
+##DHW
+```{r}
+H5DHW<-read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/H5 Hotspot and DHW.csv", strip.white=T)
+H5DHW$Date<- as.Date(H5DHW$Date)
+H5DHW
+```
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+DHWfigH5b<-ggplot(H5DHW, aes(y=DHW, x=Date))+
+  geom_line(aes(y=DHW, x=Date), size=0.75, color="grey", alpha=0.8)+
+  geom_area(fill="grey",alpha=0.6) +
+  scale_y_continuous(expression(Degree~Heating~Weeks), limits=c(0,8))+
+  scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+DHWfigH5b
+```
+
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+DHWfigH5a<-ggplot(H5DHW, aes(y=DHW, x=Date))+
+  geom_line(aes(y=DHW, x=Date), size=0.75, color="grey", alpha=0.8)+
+  geom_area(fill="grey",alpha=0.6) +
+  scale_y_continuous(expression(Degree~Heating~Weeks), limits=c(0,8))+
+  scale_x_date(limits=as.Date(c("2015-09-01","2016-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+DHWfigH5a
+```
+
+```{r}
+tempsumH5one<-summarySE(abcd_2, measurevar="Temperature_clean", groupvars=c("Date_Time"), na.rm=TRUE)
+tempsumH5one$Date<- as.Date(tempsumH5one$Date, format = "%Y-%m-%d")
+tempsumH5one
+```
+##Figures
+###by year
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigH5b<-ggplot(tempsumH5one, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='maroon4')+
+  geom_line(data=allH5dailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allH5dailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigH5b
+```
+
+```{r}
+#allRC_2$year <- factor(allRC_2$year, levels=c("2020","2019","2018","2017","2016","2015"))
+#allRC_2$month <- factor(allRC_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigH5a<-ggplot(tempsumH5one, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1.5,  alpha=0.4,color='orange2')+
+  geom_line(data=allH5dailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allH5dailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2015-09-01","2016-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigH5a
+```
+###24hr mean
+
+```{r}
+dailyH5<-ggplot(tempsumH5, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  #scale_color_manual("daynight", values = c( "day" = "salmon1","night" = "black", "NA"= "white"))+#chaning the colors of the bars
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+dailyH5
+```
+###All temperature
+```{r}
+tempfigH5<-ggplot(abcd_2, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "3 months", date_labels = "%b %d %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(angle=45,hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+tempfigH5
+```
+#Harry's 8m
+
+```{r}
+H82<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/Canyons_Dec 2019 to Aug 2020.csv", strip.white=T)
+H82<- plyr::rename(H82, c("?..Date"="Date", "Time..GMT.10.00"="Time", "Temp...C"= "Temperature"))
+H82$Date_Time<- as.POSIXct(paste(H82$Date, H82$Time), "%Y-%m-%d hh:mm:ss")
+H82$Date<-as.Date(H82$Date)
+H82$Date_Time <- as.POSIXct(H82$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+j <- with(H82, which(Date=="2020-08-10", arr.ind=TRUE))
+H82 <- H82[-j, ]
+head(H82)
+```
+
+```{r}
+H8<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/Harry's_Deep_Nov 2018 to May 2019.csv", strip.white=T)
+H8<- plyr::rename(H8, c("?..Date"="Date", "Time..GMT.10.00"="Time", "Temp...C"= "Temperature"))
+H8$Date_Time<- as.POSIXct(paste(H8$Date, H8$Time), "%Y-%m-%d hh:mm:ss")
+H8$Date<-as.Date(H8$Date)
+H8$Date_Time <- as.POSIXct(H8$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+j <- with(H8, which(Date=="2018-11-30", arr.ind=TRUE))
+H8 <- H8[-j, ]
+r <- with(H8, which(Date=="2019-05-30", arr.ind=TRUE))
+H8 <- H8[-r, ]
+f <- with(H8, which(Date=="2019-05-31", arr.ind=TRUE))
+H8 <- H8[-f, ]
+head(H8)
+```
+
+```{r}
+H8old<- read.delim("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/CTD Data/AllData_H8.txt", strip.white=T)
+H8old$Date_Time <- as.POSIXct(H8old$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+H8old$Date<- as.Date(H8old$Date, format = "%Y-%m-%d")
+j <- with(H8old, which(Date=="2016-04-30", arr.ind=TRUE))
+H8old <- H8old[-j, ]
+head(H8old)
+```
+
+```{r}
+allH8<- merge(H8, H82, by=c("Date_Time","Temperature","Date"), all=T)
+allH8<- merge(allH8, H8old, by=c("Date_Time","Temperature","Date"), all=T)
+allH8
+```
+```{r}
+allH8$hour <- as.POSIXlt(allH8$Date_Time)$hour
+allH8$day <- day(as.POSIXlt(allH8$Date_Time))
+allH8$month <- month(as.POSIXlt(allH8$Date_Time))
+allH8$year <- year(as.POSIXlt(allH8$Date_Time))
+
+allH8<-allH8%>%
+  mutate(season= ifelse (month %in% c(6, 7, 8), "winter",
+                         ifelse(month %in% c(9, 10, 11), "spring",
+                                ifelse(month %in% c(12, 1, 2), "summer", 
+                                       ifelse(month %in% c(3, 4, 5), "autumn", NA))))) %>%
+    mutate(period= ifelse(year %in% c(2015) & month %in% c(9, 10, 11,12), "A",
+                          ifelse(year %in% c(2016) & month %in% c(1,2,3,4,5,6,7,8), "A",
+                        ifelse(year %in% c(2019) & month %in% c(9, 10, 11,12), "B", 
+                               ifelse(year %in% c(2020) & month %in% c(1,2,3,4,5,6,7,8), "B",NA))))) %>%
+  mutate(daynight= ifelse (hour %in% c(9,10,11,12,13,14), "day",
+         ifelse (hour %in% c(22,23,0,1,2,3), "night", NA))) 
+
+head(allH8)
+```
+
+```{r}
+allH8_Q3<-allH8%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q3 = quantile), probs = 0.975,na.rm=T)
+allH8_Q1<-allH8%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q1 = quantile), probs = 0.025,na.rm=T)
+allH8_2<-inner_join(allH8,allH8_Q3)
+allH8_2<-inner_join(allH8_2,allH8_Q1)
+allH8_2<- allH8_2 %>%
+  mutate(Temperature_clean=ifelse(Temperature < Q1 | Temperature >Q3, NA,Temperature))
+allH8_2
+```
+
+####Above MMM
+
+```{r}
+library(dplyr)
+tempsumH8period<-summarySE(allH8_2, measurevar="Temperature_clean", groupvars=c("Date","period"), na.rm=TRUE)
+tempsumH8period
+#allflat_2$year<-as.factor(allflat_2$year)
+#head(allflat_2)
+daysover32RF<-tempsumH8period%>%
+  dplyr::group_by(period) %>%
+  dplyr::summarise(count=sum(Temperature_clean > 28.3, na.rm=T))
+daysover32RF
+```
+
+
+###Slope
+```{r}
+slope<-allH8_2%>%
+  dplyr::group_by(period, season) %>%
+  dplyr::mutate(rownum = row_number()) %>% 
+  dplyr::summarise(slope = lm(Temperature_clean ~ rownum)$coefficients['rownum'])
+slope
+```
+
+```{r}
+minmax_H8<-allH8_2%>%
+  group_by(Date,period)%>%
+  summarize_at(vars(Temperature_clean), funs(mean, std.error,min, max), na.rm=T)
+minmax_H8
+```
+```{r}
+minmax_H8$Temp_amp <- (minmax_H8$max - minmax_H8$min)
+minmax_H8
+```
+```{r}
+minmax_H8<-do.call(data.frame,lapply(minmax_H8, function(x) replace(x, is.infinite(x),NA)))
+minmax_H8
+```
+
+
+```{r}
+library(plotrix)
+amp_H8<-minmax_H8%>%
+  group_by(period)%>%
+  summarize_at(vars(Temp_amp), funs(mean,std.error,sd), na.rm=T)
+amp_H8
+```
+```{r}
+tempsumH8<-summarySE(allH8_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+tempsumH8
+```
+##Figures
+###24hr mean
+
+```{r}
+dailyH8<-ggplot(tempsumH8, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  #scale_color_manual("daynight", values = c( "day" = "salmon1","night" = "black", "NA"= "white"))+#chaning the colors of the bars
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+dailyH8
+```
+###All temperature
+```{r}
+tempfigH8<-ggplot(allH8_2, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+tempfigH8
+```
+#Reef Crest
+
+```{r}
+RCold<- read.delim("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/CTD Data/AllData_HT.txt", strip.white=T)
+RCold$Date_Time <- as.POSIXct(RCold$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+RCold$Date<- as.Date(RCold$Date, format = "%Y-%m-%d")
+head(RCold)
+```
+```{r}
+RC2<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/Reef Crest_Dec 2018 to May 2019.csv", strip.white=T)
+RC2<- plyr::rename(RC2, c("?..Date"="Date", "Time..GMT.10.00"="Time", "Temp...C"= "Temperature"))
+RC2$Date_Time<- as.POSIXct(paste(RC2$Date, RC2$Time), "%Y-%m-%d hh:mm:ss")
+RC2$Date<-as.Date(RC2$Date)
+RC2$Date_Time <- as.POSIXct(RC2$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+j <- with(RC2, which(Date=="2018-12-01", arr.ind=TRUE))
+RC2 <- RC2[-j, ]
+r <- with(RC2, which(Date=="2019-05-30", arr.ind=TRUE))
+RC2 <- RC2[-r, ]
+f <- with(RC2, which(Date=="2019-05-31", arr.ind=TRUE))
+RC2 <- RC2[-f, ]
+head(RC2)
+```
+
+```{r}
+RC<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/Reef Crest_Feb 2020 to Aug 2020.csv", strip.white=T)
+RC<- plyr::rename(RC, c("?..Date"="Date", "Time..GMT.10.00"="Time", "Temp...C"= "Temperature"))
+RC$Date_Time<- as.POSIXct(paste(RC$Date, RC$Time), "%Y-%m-%d hh:mm:ss")
+RC$Date<-as.Date(RC$Date)
+RC$Date_Time <- as.POSIXct(RC$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+j <- with(RC, which(Date=="2020-02-27", arr.ind=TRUE))
+RC <- RC[-j, ]
+head(RC)
+```
+
+```{r}
+allRC<- merge(RC, RC2, by=c("Date_Time","Temperature","Date"), all=T)
+allRC<- merge(allRC, RCold, by=c("Date_Time","Temperature","Date"), all=T)
+allRC
+```
+```{r}
+allRC$hour <- as.POSIXlt(allRC$Date_Time)$hour
+allRC$day <- day(as.POSIXlt(allRC$Date_Time))
+allRC$month <- month(as.POSIXlt(allRC$Date_Time))
+allRC$year <- year(as.POSIXlt(allRC$Date_Time))
+
+allRC<-allRC%>%
+  mutate(season= ifelse (month %in% c(6, 7, 8), "winter",
+                         ifelse(month %in% c(9, 10, 11), "spring",
+                                ifelse(month %in% c(12, 1, 2), "summer", 
+                                       ifelse(month %in% c(3, 4, 5), "autumn", NA))))) %>%
+    mutate(period= ifelse(year %in% c(2015) & month %in% c(9, 10, 11,12), "A",
+                          ifelse(year %in% c(2016) & month %in% c(1,2,3,4,5,6,7,8), "A",
+                        ifelse(year %in% c(2019) & month %in% c(9, 10, 11,12), "B", 
+                               ifelse(year %in% c(2020) & month %in% c(1,2,3,4,5,6,7,8), "B",NA))))) %>%
+  mutate(daynight= ifelse (hour %in% c(9,10,11,12,13,14), "day",
+         ifelse (hour %in% c(22,23,0,1,2,3), "night", NA))) 
+
+head(allRC)
+```
+
+```{r}
+allRC_Q3<-allRC%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q3 = quantile), probs = 0.975,na.rm=T)
+allRC_Q1<-allRC%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q1 = quantile), probs = 0.025,na.rm=T)
+allRC_2<-inner_join(allRC,allRC_Q3)
+allRC_2<-inner_join(allRC_2,allRC_Q1)
+allRC_2<- allRC_2 %>%
+  mutate(Temperature_clean=ifelse(Temperature < Q1 | Temperature >Q3, NA,Temperature))
+allRC_2
+```
+```{r}
+allRCdailyavg<-summarySE(allRC_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+#tempsumH5one$Date<- as.Date(tempsumH5one$Date, format = "%Y-%m-%d")
+allRCdailyavg
+```
+
+####Above MMM
+
+```{r}
+library(dplyr)
+tempsumRCperiod<-summarySE(allRC_2, measurevar="Temperature_clean", groupvars=c("Date","period"), na.rm=TRUE)
+tempsumRCperiod
+#allflat_2$year<-as.factor(allflat_2$year)
+#head(allflat_2)
+daysover32RF<-tempsumRCperiod%>%
+  dplyr::group_by(period) %>%
+  dplyr::summarise(count=sum(Temperature_clean > 28.3, na.rm=T))
+daysover32RF
+```
+###Slope
+```{r}
+slope<-allRC_2%>%
+  dplyr::group_by(period, season) %>%
+  dplyr::mutate(rownum = row_number()) %>% 
+  dplyr::summarise(slope = lm(Temperature_clean ~ rownum)$coefficients['rownum'])
+slope
+```
+
+```{r}
+minmax_RC<-allRC_2%>%
+  group_by(Date,period)%>%
+  summarize_at(vars(Temperature_clean), funs(mean, std.error,min, max), na.rm=T)
+minmax_RC
+```
+```{r}
+minmax_RC$Temp_amp <- (minmax_RC$max - minmax_RC$min)
+minmax_RC
+```
+```{r}
+minmax_RC<-do.call(data.frame,lapply(minmax_RC, function(x) replace(x, is.infinite(x),NA)))
+minmax_RC
+```
+
+```{r}
+library(plotrix)
+amp_RC<-minmax_RC%>%
+  group_by(period)%>%
+  summarize_at(vars(Temp_amp), funs(mean,std.error,sd), na.rm=T)
+amp_RC
+```
+```{r}
+tempsumRC<-summarySE(allRC_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+tempsumRC
+```
+
+```{r}
+tempsumRC<-tempsumRC%>%
+  mutate(Hotspot= ifelse(Temperature_clean >=28.3, Temperature_clean-27.3, 0))
+tempsumRC
+```
+```{r}
+#write.csv(tempsumRC,"RC hotspot.csv")
+```
+
+##Figures
+
+
+###by year
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigRCb<-ggplot(allRC_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='maroon4')+
+  geom_line(data=allRCdailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allRCdailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigRCb
+```
+
+```{r}
+#allRC_2$year <- factor(allRC_2$year, levels=c("2020","2019","2018","2017","2016","2015"))
+#allRC_2$month <- factor(allRC_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigRCa<-ggplot(allRC_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='orange2')+
+  geom_line(data=allRCdailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allRCdailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2015-09-01","2016-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigRCa
+```
+
+###24hr mean
+
+```{r}
+dailyRC<-ggplot(tempsumRC, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  #scale_color_manual("daynight", values = c( "day" = "salmon1","night" = "black", "NA"= "white"))+#chaning the colors of the bars
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+dailyRC
+```
+###All temperature
+```{r}
+tempfigRC<-ggplot(allRC_2, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+tempfigRC
+```
+#Reef Flat
+```{r}
+flat<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/MATT-FlatTempDATA.csv", strip.white=T)
+head(flat)
+library(plyr)
+flat<- plyr::rename(flat, c("DATE"="Date", "TIME"="Time", "TEMP"= "Temperature"))
+flat$Date_Time<- as.POSIXct(paste(flat$Date, flat$Time), "%Y-%m-%d hh:mm:ss")
+flat<- flat[-c(4:15)]
+flat$Date_Time<- as.POSIXct(paste(flat$Date, flat$Time), "%Y-%m-%d hh:mm:ss")
+
+#flat$Site<- "Reef flat"
+flat$Date_Time <- as.POSIXct(flat$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+flat$Date<-as.Date(flat$Date)
+m <- with(flat, which(Date=="2016-08-18", arr.ind=TRUE))
+flat <- flat[-m, ]
+head(flat)
+```
+
+```{r}
+flatold<- read.delim("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/CTD Data/AllData_IF.txt", strip.white=T)
+flatold$Date_Time <- as.POSIXct(flatold$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+flatold$Date<- as.Date(flatold$Date)
+m <- with(flatold, which(Date=="2016-08-18", arr.ind=TRUE))
+flatold <- flatold[-m, ]
+head(flatold)
+```
+
+```{r}
+allflat<- merge(flat, flatold, by=c("Date_Time","Temperature", "Date"), all=T)
+allflat
+```
+```{r}
+Flat1spring<-read.csv("/Users/imkri/Desktop/Postdoc/Species interactions project/gracenewflat1.csv", strip.white=T)
+Flat1spring<- plyr::rename(Flat1spring, c("Date.Time..GMT.10.00"="Date_Time", "Temp...C..LGR.S.N..1217108..SEN.S.N..1217108."= "Temperature"))
+Flat1spring$Date_Time <- as.POSIXct(Flat1spring$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+Flat1spring
+```
+
+
+
+```{r}
+Flat1summer<-read.csv("/Users/imkri/Desktop/Postdoc/Species interactions project/summerFlat_1_-_1217108.csv", strip.white=T)
+Flat1summer<- plyr::rename(Flat1summer, c("Date.Time..GMT.10.00"="Date_Time", "Temp...C..LGR.S.N..1217108..SEN.S.N..1217108."= "Temperature"))
+Flat1summer$Date_Time <- as.POSIXct(Flat1summer$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+Flat1summer
+```
+
+
+
+```{r}
+allRF<- merge(Flat1spring, Flat1summer, by=c("Date_Time","Temperature"), all=T)
+#allRF<-merge(allRF, Flat2spring, by=c("Date_Time","Temperature"), all=T)
+#allRF<-merge(allRF, Flat2summer, by=c("Date_Time","Temperature"), all=T)
+allRF<- allRF[-c(3:6)]
+allRF$Date<- as.Date(allRF$Date, format = "%Y-%m-%d")
+j <- with(allRF, which(Date=="2019-09-05", arr.ind=TRUE))
+allRF <- allRF[-j, ]
+m <- with(allRF, which(Date=="2020-02-12", arr.ind=TRUE))
+allRF <- allRF[-m, ]
+r <- with(allRF, which(Date=="2020-02-13", arr.ind=TRUE))
+allRF <- allRF[-r, ]
+f <- with(allRF, which(Date=="2020-02-14", arr.ind=TRUE))
+allRF <- allRF[-f, ]
+k <- with(allRF, which(Date=="2020-02-15", arr.ind=TRUE))
+allRF <- allRF[-k, ]
+p <- with(allRF, which(Date=="2020-02-16", arr.ind=TRUE))
+allRF <- allRF[-p, ]
+q <- with(allRF, which(Date=="2020-02-17", arr.ind=TRUE))
+allRF <- allRF[-q, ]
+allRF
+```
+
+```{r}
+allflat<- merge(allRF, allflat, by=c("Date_Time","Temperature", "Date"), all=T)
+allflat
+```
+
+```{r}
+a<-read.csv("/Users/imkri/Desktop/Postdoc/Species interactions project/16.08.2020_Experiment_Shark_Bay_subset.csv", strip.white=T)
+
+library(plyr)
+a<- a[-c(5:10)]
+a<- plyr::rename(a, c("Time..GMT.10.00"="Time", "Temp...C"= "Temperature"))
+a$Date_Time<- as.POSIXct(paste(a$Date, a$Time), "%Y-%m-%d hh:mm:ss")
+a$Date<- as.Date(a$Date, format = "%Y-%m-%d")
+a
+```
+
+```{r}
+allflat<- merge(a, allflat, by=c("Date_Time","Temperature", "Date"), all=T)
+allflat
+```
+
+```{r}
+allflat$hour <- as.POSIXlt(allflat$Date_Time)$hour
+allflat$day <- day(as.POSIXlt(allflat$Date_Time))
+allflat$month <- month(as.POSIXlt(allflat$Date_Time))
+allflat$year <- year(as.POSIXlt(allflat$Date_Time))
+allflat$Site <- "RF"
+
+allflat<-allflat%>%
+  mutate(season= ifelse (month %in% c(6, 7, 8), "winter",
+                         ifelse(month %in% c(9, 10, 11), "spring",
+                                ifelse(month %in% c(12, 1, 2), "summer", 
+                                       ifelse(month %in% c(3, 4, 5), "autumn", NA))))) %>%
+    mutate(period= ifelse(year %in% c(2015) & month %in% c(9, 10, 11,12), "A",
+                          ifelse(year %in% c(2016) & month %in% c(1,2,3,4,5,6,7,8), "A",
+                        ifelse(year %in% c(2019) & month %in% c(9, 10, 11,12), "B", 
+                               ifelse(year %in% c(2020) & month %in% c(1,2,3,4,5,6,7,8), "B",NA))))) %>%
+  mutate(daynight= ifelse (hour %in% c(9,10,11,12,13,14), "day",
+         ifelse (hour %in% c(22,23,0,1,2,3), "night", NA))) 
+head(allflat)
+```
+```{r}
+unique(allflat$period)
+```
+
+```{r}
+allflat_Q3<-allflat%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q3 = quantile), probs = 0.975,na.rm=T)
+allflat_Q1<-allflat%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q1 = quantile), probs = 0.025,na.rm=T)
+allflat_2<-inner_join(allflat,allflat_Q3)
+allflat_2<-inner_join(allflat_2,allflat_Q1)
+allflat_2<- allflat_2 %>%
+  mutate(Temperature_clean=ifelse(Temperature < Q1 | Temperature >Q3| Temperature <18.0,NA,Temperature))
+allflat_2
+```
+```{r}
+allRFdailyavg<-summarySE(allflat_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+#tempsumH5one$Date<- as.Date(tempsumH5one$Date, format = "%Y-%m-%d")
+allRFdailyavg
+```
+
+####Above MMM
+
+```{r}
+library(dplyr)
+tempsumRFperiod<-summarySE(allflat_2, measurevar="Temperature_clean", groupvars=c("Date","hour","period"), na.rm=TRUE)
+tempsumRFperiod
+#allflat_2$year<-as.factor(allflat_2$year)
+#head(allflat_2)
+daysover32RF<-tempsumRFperiod%>%
+  dplyr::group_by(period) %>%
+  dplyr::summarise(count=sum(Temperature_clean > 28.3, na.rm=T))
+daysover32RF
+```
+###Slope
+```{r}
+slope<-allflat_2%>%
+  dplyr::group_by(period, season) %>%
+  dplyr::mutate(rownum = row_number()) %>% 
+  dplyr::summarise(slope = lm(Temperature_clean ~ rownum)$coefficients['rownum'])
+slope
+```
+
+```{r}
+library(plotrix)
+minmax_RF<-allflat_2%>%
+  group_by(period,Date)%>%
+  summarize_at(vars(Temperature_clean), funs(mean, std.error,min, max), na.rm=T)
+minmax_RF
+```
+```{r}
+minmax_RF$Temp_amp <- (minmax_RF$max - minmax_RF$min)
+minmax_RF
+```
+
+```{r}
+minmax_RF<-do.call(data.frame,lapply(minmax_RF, function(x) replace(x, is.infinite(x),NA)))
+minmax_RF
+```
+```{r}
+library(plotrix)
+amp_RF<-minmax_RF%>%
+  group_by(period)%>%
+  summarize_at(vars(Temp_amp), funs(mean,std.error,sd), na.rm=T)
+amp_RF
+```
+
+
+```{r}
+tempsumRF<-summarySE(allflat_2, measurevar="Temperature_clean", groupvars=c("Date","period", "Site"), na.rm=TRUE)
+tempsumRF
+```
+
+```{r}
+tempsumRF<-tempsumRF%>%
+  mutate(Hotspot= ifelse(Temperature_clean >=28.3, Temperature_clean-27.3, 0))
+tempsumRF
+```
+```{r}
+write.csv(tempsumRF,"RF hotspot.csv")
+```
+##DHW
+```{r}
+RFDHW<-read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/RF Hotspot and DHW.csv", strip.white=T)
+RFDHW$Date<- as.Date(RFDHW$Date)
+RFDHW
+```
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+DHWfigRFb<-ggplot(RFDHW, aes(y=DHW, x=Date))+
+  geom_line(aes(y=DHW, x=Date), size=0.75, color="grey", alpha=0.8)+
+  geom_area(fill="grey",alpha=0.6) +
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  #geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  #geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Degree~Heating~Weeks), limits=c(0,8))+
+  scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+DHWfigRFb
+```
+
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+DHWfigRFa<-ggplot(RFDHW, aes(y=DHW, x=Date))+
+  geom_line(aes(y=DHW, x=Date), size=0.75, color="grey", alpha=0.8)+
+  geom_area(fill="grey",alpha=0.6) +
+  scale_y_continuous(expression(Degree~Heating~Weeks), limits=c(0,8))+
+  scale_x_date(limits=as.Date(c("2015-09-01","2016-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+DHWfigRFa
+```
+##Figures
+###by year
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigRFb<-ggplot(allflat_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='maroon4')+
+  geom_line(data=allRFdailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allRFdailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigRFb
+```
+
+```{r}
+#allRC_2$year <- factor(allRC_2$year, levels=c("2020","2019","2018","2017","2016","2015"))
+#allRC_2$month <- factor(allRC_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigRFa<-ggplot(allflat_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='orange2')+
+  geom_line(data=allRFdailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allRFdailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2015-09-01","2016-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigRFa
+```
+###24hour mean
+```{r}
+dailyRF<-ggplot(tempsumRF, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  #scale_color_manual("daynight", values = c( "day" = "salmon1","night" = "black", "NA"= "white"))+#chaning the colors of the bars
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+dailyRF
+```
+###All temperature
+```{r}
+tempfigRF<-ggplot(allflat_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "3 months", date_labels = "%b %d %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(angle=45,hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+tempfigRF
+```
+
+
+#Shallow Lagoon
+```{r}
+SL<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/SL revised.csv", strip.white=T)
+SL$Date_Time <- as.POSIXct(SL$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+head(SL)
+```
+
+```{r}
+SLold<- read.delim("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/CTD Data/AllData_SL.txt", strip.white=T)
+SLold$Date_Time <- as.POSIXct(SLold$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+head(SLold)
+```
+
+```{r}
+allSL<- merge(SL, SLold, by=c("Date_Time","Temperature"), all=T)
+allSL$Date<- as.Date(allSL$Date, format = "%Y-%m-%d")
+allSL
+```
+
+```{r}
+SL2<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/Shallow_Lagoon_Feb 2020 to July 2020.csv", strip.white=T)
+SL2<- plyr::rename(SL2, c("?..Date"="Date", "Time..GMT.10.00"="Time", "Temp...C"= "Temperature"))
+SL2$Date_Time<- as.POSIXct(paste(SL2$Date, SL2$Time), "%Y-%m-%d hh:mm:ss")
+SL2$Date<-as.Date(SL2$Date)
+SL2$Date_Time <- as.POSIXct(SL2$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+head(SL2)
+```
+
+```{r}
+j <- with(SL2, which(Date=="2020-07-31", arr.ind=TRUE))
+SL2 <- SL2[-j, ]
+r <- with(SL2, which(Date=="2020-08-01", arr.ind=TRUE))
+SL2 <- SL2[-r, ]
+f <- with(SL2, which(Date=="2020-08-02", arr.ind=TRUE))
+SL2 <- SL2[-f, ]
+k <- with(SL2, which(Date=="2020-08-03", arr.ind=TRUE))
+SL2 <- SL2[-k, ]
+m <- with(SL2, which(Date=="2020-08-04", arr.ind=TRUE))
+SL2 <- SL2[-m, ]
+#unique(SL2$Date)
+```
+
+```{r}
+allSL<- merge(allSL, SL2, by=c("Date_Time","Temperature","Date"), all=T)
+allSL
+```
+
+```{r}
+allSL$hour <- as.POSIXlt(allSL$Date_Time)$hour
+allSL$day <- day(as.POSIXlt(allSL$Date_Time))
+allSL$month <- month(as.POSIXlt(allSL$Date_Time))
+allSL$year <- year(as.POSIXlt(allSL$Date_Time))
+allSL$Site<-"SL"
+
+allSL<-allSL%>%
+  mutate(season= ifelse (month %in% c(6, 7, 8), "winter",
+                         ifelse(month %in% c(9, 10, 11), "spring",
+                                ifelse(month %in% c(12, 1, 2), "summer", 
+                                       ifelse(month %in% c(3, 4, 5), "autumn", NA))))) %>%
+    mutate(period= ifelse(year %in% c(2015) & month %in% c(9, 10, 11,12), "A",
+                          ifelse(year %in% c(2016) & month %in% c(1,2,3,4,5,6,7,8), "A",
+                        ifelse(year %in% c(2019) & month %in% c(9, 10, 11,12), "B", 
+                               ifelse(year %in% c(2020) & month %in% c(1,2,3,4,5,6,7,8), "B",NA))))) %>%
+  mutate(daynight= ifelse (hour %in% c(9,10,11,12,13,14), "day",
+         ifelse (hour %in% c(22,23,0,1,2,3), "night", NA))) 
+
+head(allSL)
+```
+```{r}
+allSL_Q3<-allSL%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q3 = quantile), probs = 0.975,na.rm=T)
+allSL_Q1<-allSL%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q1 = quantile), probs = 0.025,na.rm=T)
+allSL_2<-inner_join(allSL,allSL_Q3)
+allSL_2<-inner_join(allSL_2,allSL_Q1)
+allSL_2<- allSL_2 %>%
+  mutate(Temperature_clean=ifelse(Temperature < Q1 | Temperature >Q3, NA,Temperature))
+allSL_2
+```
+```{r}
+allSLdailyavg<-summarySE(allSL_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+#tempsumH5one$Date<- as.Date(tempsumH5one$Date, format = "%Y-%m-%d")
+allSLdailyavg
+```
+
+
+####Above MMM
+
+```{r}
+library(dplyr)
+tempsumSLperiod<-summarySE(allSL_2, measurevar="Temperature_clean", groupvars=c("Date","period"), na.rm=TRUE)
+tempsumSLperiod
+#allflat_2$year<-as.factor(allflat_2$year)
+#head(allflat_2)
+daysover32SL<-tempsumSLperiod%>%
+  dplyr::group_by(period) %>%
+  dplyr::summarise(count=sum(Temperature_clean > 28.3, na.rm=T))
+daysover32SL
+```
+###Slope
+```{r}
+slope<-allSL_2%>%
+  dplyr::group_by(period, season) %>%
+  dplyr::mutate(rownum = row_number()) %>% 
+  dplyr::summarise(slope = lm(Temperature_clean ~ rownum)$coefficients['rownum'])
+slope
+```
+
+```{r}
+minmax_SL<-allSL_2%>%
+  group_by(Date,period)%>%
+  summarize_at(vars(Temperature_clean), funs(mean, std.error,min, max), na.rm=T)
+minmax_SL
+```
+```{r}
+minmax_SL$Temp_amp <- (minmax_SL$max - minmax_SL$min)
+minmax_SL
+```
+```{r}
+minmax_SL<-do.call(data.frame,lapply(minmax_SL, function(x) replace(x, is.infinite(x),NA)))
+minmax_SL
+```
+```{r}
+library(plotrix)
+amp_SL<-minmax_SL%>%
+  group_by(period)%>%
+  summarize_at(vars(Temp_amp), funs(mean,std.error,sd), na.rm=T)
+amp_SL
+```
+```{r}
+sumSL<-allSL%>%
+  group_by(season,year)%>%
+  summarize_at(vars(Temperature), funs(mean,sd,min,max), na.rm=T)
+sumSL
+```
+
+```{r}
+tempsumSL<-summarySE(allSL_2, measurevar="Temperature_clean", groupvars=c("Date", "period", "Site"), na.rm=TRUE)
+tempsumSL
+```
+```{r}
+tempsumSL<-tempsumSL%>%
+  mutate(Hotspot= ifelse(Temperature_clean >=28.3, Temperature_clean-27.3, 0))
+tempsumSL
+```
+```{r}
+write.csv(tempsumSL,"SL hotspot.csv")
+```
+##DHW
+```{r}
+SLDHW<-read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/SL Hotspot and DHW.csv", strip.white=T)
+SLDHW$Date<- as.Date(SLDHW$Date)
+SLDHW
+```
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+DHWfigSLb<-ggplot(SLDHW, aes(y=DHW, x=Date))+
+  geom_line(aes(y=DHW, x=Date), size=0.75, color="grey", alpha=0.8)+
+  geom_area(fill="grey",alpha=0.6) +
+  #geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  #geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Degree~Heating~Weeks), limits=c(0,8))+
+  scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+DHWfigSLb
+```
+
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+DHWfigSLa<-ggplot(SLDHW, aes(y=DHW, x=Date))+
+  geom_line(aes(y=DHW, x=Date), size=0.75, color="grey", alpha=0.8)+
+  geom_area(fill="grey",alpha=0.6) +
+  #geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  #geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Degree~Heating~Weeks), limits=c(0,8))+
+  scale_x_date(limits=as.Date(c("2015-09-01","2016-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+DHWfigSLa
+```
+##Figures
+###by year
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigSLb<-ggplot(allSL_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='maroon4')+
+  geom_line(data=allSLdailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allSLdailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigSLb
+```
+
+```{r}
+#allRC_2$year <- factor(allRC_2$year, levels=c("2020","2019","2018","2017","2016","2015"))
+#allRC_2$month <- factor(allRC_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigSLa<-ggplot(allSL_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='orange2')+
+   geom_line(data=allSLdailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8)+
+  geom_ribbon(data=allSLdailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2015-09-01","2016-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigSLa
+```
+###24hour mean
+```{r}
+#allflat$Date_Time<- as.Date(as.POSIXct(allflat$Date_Time, origin="1970-01-01"))
+meanSL<-ggplot(tempsumSL, aes(y=Temperature_clean, x=Date))+
+  #facet_wrap(~season)+
+  geom_line(size=1)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(angle=45,hjust=1, size=10),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=10), 
+        axis.title.x = element_text(vjust=0.5, size=10),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+meanSL
+```
+###All temperature
+```{r}
+allSL$Date_Time<- as.Date(as.POSIXct(allSL$Date_Time, origin="1970-01-01"))
+tempfigSL<-ggplot(allSL_2, aes(y=Temperature_clean, x=Date))+
+  #facet_wrap(~season)+
+  geom_line(size=1)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 weeks", date_labels = "%b %d %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(angle=45,hjust=1, size=10),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=10), 
+        axis.title.x = element_text(vjust=0.5, size=10),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+tempfigSL
+```
+#Deep Lagoon
+
+```{r}
+DLold<- read.delim("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/CTD Data/AllData_DL.txt", strip.white=T)
+DLold$Date_Time <- as.POSIXct(DLold$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+DLold$Date<- as.Date(DLold$Date, format = "%Y-%m-%d")
+head(DLold)
+```
+
+```{r}
+DL2<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/Deep_Lagoon_Dec 2018 only.csv", strip.white=T)
+DL2<- plyr::rename(DL2, c("?..Date"="Date", "Time..GMT.10.00"="Time", "Temp...C"= "Temperature"))
+DL2$Date_Time<- as.POSIXct(paste(DL2$Date, DL2$Time), "%Y-%m-%d hh:mm:ss")
+DL2$Date<-as.Date(DL2$Date)
+DL2$Date_Time <- as.POSIXct(DL2$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+j <- with(DL2, which(Date=="2018-12-01", arr.ind=TRUE))
+DL2 <- DL2[-j, ]
+head(DL2)
+```
+
+```{r}
+DL<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/Deep Lagoon_Feb 2020 to May 2020.csv", strip.white=T)
+DL<- plyr::rename(DL, c("?..Date"="Date", "Time..GMT.10.00"="Time", "Temp...C"= "Temperature"))
+DL$Date_Time<- as.POSIXct(paste(DL$Date, DL$Time), "%Y-%m-%d hh:mm:ss")
+DL$Date<-as.Date(DL$Date)
+DL$Date_Time <- as.POSIXct(DL$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+j <- with(DL, which(Date=="2020-02-27", arr.ind=TRUE))
+DL <- DL[-j, ]
+r <- with(DL, which(Date=="2020-05-23", arr.ind=TRUE))
+DL <- DL[-r, ]
+f <- with(DL, which(Date=="2020-05-24", arr.ind=TRUE))
+DL <- DL[-f, ]
+head(DL)
+```
+
+```{r}
+allDL<- merge(DL, DL2, by=c("Date_Time","Temperature","Date"), all=T)
+allDL<- merge(allDL, DLold, by=c("Date_Time","Temperature","Date"), all=T)
+allDL
+```
+```{r}
+allDL$hour <- as.POSIXlt(allDL$Date_Time)$hour
+allDL$day <- day(as.POSIXlt(allDL$Date_Time))
+allDL$month <- month(as.POSIXlt(allDL$Date_Time))
+allDL$year <- year(as.POSIXlt(allDL$Date_Time))
+
+allDL<-allDL%>%
+  mutate(season= ifelse (month %in% c(6, 7, 8), "winter",
+                         ifelse(month %in% c(9, 10, 11), "spring",
+                                ifelse(month %in% c(12, 1, 2), "summer", 
+                                       ifelse(month %in% c(3, 4, 5), "autumn", NA))))) %>%
+    mutate(period= ifelse(year %in% c(2015) & month %in% c(9, 10, 11,12), "A",
+                          ifelse(year %in% c(2016) & month %in% c(1,2,3,4,5,6,7,8), "A",
+                        ifelse(year %in% c(2019) & month %in% c(9, 10, 11,12), "B", 
+                               ifelse(year %in% c(2020) & month %in% c(1,2,3,4,5,6,7,8), "B",NA))))) %>%
+  mutate(daynight= ifelse (hour %in% c(9,10,11,12,13,14), "day",
+         ifelse (hour %in% c(22,23,0,1,2,3), "night", NA))) 
+
+head(allDL)
+```
+
+```{r}
+allDL_Q3<-allDL%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q3 = quantile), probs = 0.975,na.rm=T)
+allDL_Q1<-allDL%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q1 = quantile), probs = 0.025,na.rm=T)
+allDL_2<-inner_join(allDL,allDL_Q3)
+allDL_2<-inner_join(allDL_2,allDL_Q1)
+allDL_2<- allDL_2 %>%
+  mutate(Temperature_clean=ifelse(Temperature < Q1 | Temperature >Q3, NA,Temperature))
+allDL_2
+```
+
+```{r}
+allDLdailyavg<-summarySE(allDL_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+#tempsumH5one$Date<- as.Date(tempsumH5one$Date, format = "%Y-%m-%d")
+allDLdailyavg
+```
+
+####Above MMM
+
+```{r}
+library(dplyr)
+tempsumDLperiod<-summarySE(allDL_2, measurevar="Temperature_clean", groupvars=c("Date","period"), na.rm=TRUE)
+tempsumDLperiod
+#allflat_2$year<-as.factor(allflat_2$year)
+#head(allflat_2)
+daysover32RF<-allDL_2%>%
+  dplyr::group_by(period) %>%
+  dplyr::summarise(count=sum(Temperature_clean > 28.3, na.rm=T))
+daysover32RF
+```
+###Slope
+```{r}
+slope<-allDL_2%>%
+  dplyr::group_by(period, season) %>%
+  dplyr::mutate(rownum = row_number()) %>% 
+  dplyr::summarise(slope = lm(Temperature_clean ~ rownum)$coefficients['rownum'])
+slope
+```
+```{r}
+minmax_DL<-allDL_2%>%
+  group_by(Date,period)%>%
+  summarize_at(vars(Temperature_clean), funs(mean, std.error,min, max), na.rm=T)
+minmax_DL
+```
+```{r}
+minmax_DL$Temp_amp <- (minmax_DL$max - minmax_DL$min)
+minmax_DL
+```
+
+```{r}
+library(plotrix)
+amp_DL<-minmax_DL%>%
+  group_by(period)%>%
+  summarize_at(vars(Temp_amp), funs(mean,std.error,sd), na.rm=T)
+amp_DL
+```
+```{r}
+tempsumDL<-summarySE(allDL_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+tempsumDL
+```
+
+```{r}
+tempsumDL<-tempsumDL%>%
+  mutate(Hotspot= ifelse(Temperature_clean >=28.3, Temperature_clean-27.3, 0))
+tempsumDL
+```
+```{r}
+write.csv(tempsumDL,"DL hotspot.csv")
+```
+
+##Figures
+
+###by year
+```{r}
+#abcd_2$month <- factor(abcd_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigDLb<-ggplot(allDL_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='maroon4')+
+  geom_line(data=allDLdailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allDLdailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigDLb
+```
+
+```{r}
+#allRC_2$year <- factor(allRC_2$year, levels=c("2020","2019","2018","2017","2016","2015"))
+#allRC_2$month <- factor(allRC_2$month, levels=c("8","9","10","11","12","1","2","3","4","5","6","7"))
+tempfigDLa<-ggplot(allDL_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='orange2')+
+  geom_line(data=allSLdailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allSLdailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2015-09-01","2016-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigDLa
+```
+###24hr mean
+
+```{r}
+dailyDL<-ggplot(tempsumDL, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  #scale_color_manual("daynight", values = c( "day" = "salmon1","night" = "black", "NA"= "white"))+#chaning the colors of the bars
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+dailyDL
+```
+###All temperature
+```{r}
+tempfigDL<-ggplot(allDL_2, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+tempfigDL
+```
+
+#Fourth Point 5m
+
+```{r}
+FP5old<- read.delim("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/CTD Data/AllData_4P.txt", strip.white=T)
+FP5old$Date_Time <- as.POSIXct(FP5old$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+FP5old$Date<- as.Date(FP5old$Date, format = "%Y-%m-%d")
+p <- with(FP5old, which(Date=="2016-08-08", arr.ind=TRUE))
+FP5old <- FP5old[-p, ]
+m <- with(FP5old, which(Date=="2016-08-09", arr.ind=TRUE))
+FP5old <- FP5old[-m, ]
+k <- with(FP5old, which(Date=="2016-08-10", arr.ind=TRUE))
+FP5old <- FP5old[-k, ]
+f <- with(FP5old, which(Date=="2016-08-11", arr.ind=TRUE))
+FP5old <- FP5old[-f, ]
+j <- with(FP5old, which(Date=="2016-08-12", arr.ind=TRUE))
+FP5old <- FP5old[-j, ]
+head(FP5old)
+```
+```{r}
+#unique(FP5old$Date)
+```
+
+```{r}
+FP52<- read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/Fourth_Point5m_Dec 2018 to May 2019.csv", strip.white=T)
+FP52<- plyr::rename(FP52, c("?..Date"="Date", "Time..GMT.10.00"="Time", "Temp...C"= "Temperature"))
+FP52$Date_Time<- as.POSIXct(paste(FP52$Date, FP52$Time), "%Y-%m-%d hh:mm:ss")
+FP52$Date<-as.Date(FP52$Date)
+FP52$Date_Time <- as.POSIXct(FP52$Date_Time,tz="Etc/GMT-10",usetz=TRUE)
+j <- with(FP52, which(Date=="2018-12-01", arr.ind=TRUE))
+FP52 <- FP52[-j, ]
+r <- with(FP52, which(Date=="2019-05-30", arr.ind=TRUE))
+FP52 <- FP52[-r, ]
+f <- with(FP52, which(Date=="2019-05-31", arr.ind=TRUE))
+FP52 <- FP52[-f, ]
+head(FP52)
+```
+
+```{r}
+allFP5<- merge(FP5old, FP52, by=c("Date_Time","Temperature","Date"), all=T)
+allFP5
+```
+
+```{r}
+allFP5$hour <- as.POSIXlt(allFP5$Date_Time)$hour
+allFP5$day <- day(as.POSIXlt(allFP5$Date_Time))
+allFP5$month <- month(as.POSIXlt(allFP5$Date_Time))
+allFP5$year <- year(as.POSIXlt(allFP5$Date_Time))
+
+allFP5<-allFP5%>%
+  mutate(season= ifelse (month %in% c(6, 7, 8), "winter",
+                         ifelse(month %in% c(9, 10, 11), "spring",
+                                ifelse(month %in% c(12, 1, 2), "summer", 
+                                       ifelse(month %in% c(3, 4, 5), "autumn", NA))))) %>%
+    mutate(period= ifelse(year %in% c(2015) & month %in% c(9, 10, 11,12), "A",
+                          ifelse(year %in% c(2016) & month %in% c(1,2,3,4,5,6,7,8), "A",
+                        ifelse(year %in% c(2019) & month %in% c(9, 10, 11,12), "B", 
+                               ifelse(year %in% c(2020) & month %in% c(1,2,3,4,5,6,7,8), "B",NA))))) %>%
+  mutate(daynight= ifelse (hour %in% c(9,10,11,12,13,14), "day",
+         ifelse (hour %in% c(22,23,0,1,2,3), "night", NA))) 
+
+head(allFP5)
+```
+
+```{r}
+allFP5_Q3<-allFP5%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q3 = quantile), probs = 0.975,na.rm=T)
+allFP5_Q1<-allFP5%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q1 = quantile), probs = 0.025,na.rm=T)
+allFP5_2<-inner_join(allFP5,allFP5_Q3)
+allFP5_2<-inner_join(allFP5_2,allFP5_Q1)
+allFP5_2<- allFP5_2 %>%
+  mutate(Temperature_clean=ifelse(Temperature < Q1 | Temperature >Q3, NA,Temperature))
+allFP5_2
+```
+```{r}
+allFP5dailyavg<-summarySE(allFP5_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+#tempsumH5one$Date<- as.Date(tempsumH5one$Date, format = "%Y-%m-%d")
+allFP5dailyavg
+```
+
+####Above MMM
+
+```{r}
+library(dplyr)
+tempsumF5period<-summarySE(allFP5_2, measurevar="Temperature_clean", groupvars=c("Date","period"), na.rm=TRUE)
+tempsumF5period
+#allflat_2$year<-as.factor(allflat_2$year)
+#head(allflat_2)
+daysover32RF<-allFP5_2%>%
+  dplyr::group_by(period) %>%
+  dplyr::summarise(count=sum(Temperature_clean > 28.3, na.rm=T))
+daysover32RF
+```
+###Slope
+```{r}
+slope<-allFP5_2%>%
+  dplyr::group_by(period, season) %>%
+  dplyr::mutate(rownum = row_number()) %>% 
+  dplyr::summarise(slope = lm(Temperature_clean ~ rownum)$coefficients['rownum'])
+slope
+```
+
+```{r}
+minmax_FP5<-allFP5_2%>%
+  group_by(Date,period)%>%
+  summarize_at(vars(Temperature_clean), funs(mean, std.error,min, max), na.rm=T)
+minmax_FP5
+```
+```{r}
+minmax_FP5$Temp_amp <- (minmax_FP5$max - minmax_FP5$min)
+minmax_FP5
+```
+```{r}
+minmax_FP5<-do.call(data.frame,lapply(minmax_FP5, function(x) replace(x, is.infinite(x),NA)))
+minmax_FP5
+```
+```{r}
+library(plotrix)
+amp_FP5<-minmax_FP5%>%
+  group_by(period)%>%
+  summarize_at(vars(Temp_amp), funs(mean,std.error,sd), na.rm=T)
+amp_FP5
+```
+
+```{r}
+tempsumFP5<-summarySE(allFP5_2, measurevar="Temperature_clean", groupvars=c("Date"), na.rm=TRUE)
+tempsumFP5
+```
+##Figures
+###24hr mean
+
+```{r}
+tempfigFP5b<-ggplot(allFP5_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='maroon4')+
+  geom_line(data=allFP5dailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allFP5dailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigFP5b
+```
+```{r}
+tempfigFP5a<-ggplot(allFP5_2, aes(y=Temperature_clean, x=Date))+
+  geom_point(aes(y=Temperature_clean, x=Date), size=1,  alpha=0.4,color='orange2')+
+  geom_line(data=allFP5dailyavg, aes(y=Temperature_clean, x=Date),size=1.25,alpha=0.8,color='black')+
+  geom_ribbon(data=allFP5dailyavg,aes(ymin=Temperature_clean-se, ymax=Temperature_clean+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(18,34.5), breaks=c(20,22.5,25,27.5,30,32.5,35))+
+  scale_x_date(limits=as.Date(c("2015-09-01","2016-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigFP5a
+```
+
+
+###All temperature
+```{r}
+tempfigFP5<-ggplot(allFP5_2, aes(y=Temperature_clean, x=Date))+
+  geom_line(aes(y=Temperature_clean, x=Date), size=0.75,  alpha=0.8)+
+  #geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4, color=NA)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)))+
+  scale_x_date(date_breaks = "12 months", date_labels = "%b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12),
+        legend.position = 'none')
+tempfigFP5
+```
+##Fourth Point 8m
+
+```{r}
+FP8T <- read.delim("/Users/imkri/Desktop/Penn postdoc/Heron Island Temperature and Light Data/CTD Data/Temperature_4thPoint_ALL_TEST.txt", strip.white=T, check.names=F)
+library(plyr)
+FP8T<- plyr::rename(FP8T, c("﻿Date"="Date", "Time, GMT+10:00"="Time", "Temp, °C"= "Temperature"))
+FP8T$Date_Time<- as.POSIXct(paste(FP8T$Date, FP8T$Time), "%Y-%m-%d hh:mm:ss")
+FP8T<- FP8T[-c(4:15)]
+FP8T$Date_Time<- as.POSIXct(paste(FP8T$Date, FP8T$Time), "%Y-%m-%d hh:mm:ss")
+#F8<- merge(FP8T, FP8, by="Date_Time", all=T)
+F8$Site<- "Fourth Point 8m"
+F8= F8 %>% mutate(Site=factor(Site))
+FP8T
+```
+```{r}
+FP8T$hour <- as.POSIXlt(FP8T$Date_Time)$hour
+FP8T$day <- day(as.POSIXlt(FP8T$Date_Time))
+FP8T$month <- month(as.POSIXlt(FP8T$Date_Time))
+FP8T$year <- year(as.POSIXlt(FP8T$Date_Time))
+
+FP8T<-FP8T%>%
+  mutate(season= ifelse (month %in% c(6, 7, 8), "winter",
+                         ifelse(month %in% c(9, 10, 11), "spring",
+                                ifelse(month %in% c(12, 1, 2), "summer", 
+                                       ifelse(month %in% c(3, 4, 5), "autumn", NA))))) %>%
+    mutate(period= ifelse(year %in% c(2015) & month %in% c(9, 10, 11,12), "A",
+                          ifelse(year %in% c(2016) & month %in% c(1,2,3), "A",
+                        ifelse(year %in% c(2019) & month %in% c(9, 10, 11,12), "B", 
+                               ifelse(year %in% c(2020) & month %in% c(1,2,3), "B",NA))))) %>%
+  mutate(daynight= ifelse (hour %in% c(9,10,11,12,13,14), "day",
+         ifelse (hour %in% c(22,23,0,1,2,3), "night", NA))) 
+head(FP8T)
+```
+
+
+```{r}
+FP8T_Q3<-FP8T%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q3 = quantile), probs = 0.975,na.rm=T)
+FP8T_Q1<-FP8T%>%
+  group_by(Date)%>%
+  summarize_at(vars(Temperature), funs(Q1 = quantile), probs = 0.025,na.rm=T)
+FP8T_2<-inner_join(FP8T,FP8T_Q3)
+FP8T_2<-inner_join(FP8T_2,FP8T_Q1)
+FP8T_2<- FP8T_2 %>%
+  mutate(Temperature_clean=ifelse(Temperature < Q1 | Temperature >Q3| Temperature <18.0,NA,Temperature))
+FP8T_2
+```
+####Above MMM
+
+```{r}
+library(dplyr)
+tempsumFP8period<-summarySE(FP8T_2, measurevar="Temperature_clean", groupvars=c("Date","hour","period"), na.rm=TRUE)
+tempsumFP8period
+#allflat_2$year<-as.factor(allflat_2$year)
+#head(allflat_2)
+daysover32FP8<-tempsumFP8period%>%
+  dplyr::group_by(period) %>%
+  dplyr::summarise(count=sum(Temperature_clean > 29.3, na.rm=T))
+daysover32FP8
+```
+###Slope
+```{r}
+slope<-FP8T_2%>%
+  dplyr::group_by(period, season) %>%
+  dplyr::mutate(rownum = row_number()) %>% 
+  dplyr::summarise(slope = lm(Temperature_clean ~ rownum)$coefficients['rownum'])
+slope
+```
+
+```{r}
+minmax_RF<-FP8T_2%>%
+  group_by(period)%>%
+  summarize_at(vars(Temperature_clean), funs(mean, std.error,min, max), na.rm=T)
+minmax_RF
+```
+```{r}
+minmax_RF$Temp_amp <- (minmax_RF$max - minmax_RF$min)
+minmax_RF
+```
+
+```{r}
+minmax_RF<-do.call(data.frame,lapply(minmax_RF, function(x) replace(x, is.infinite(x),NA)))
+minmax_RF
+```
+```{r}
+library(plotrix)
+amp_RF<-minmax_RF%>%
+  group_by(period)%>%
+  summarize_at(vars(Temp_amp), funs(mean,std.error,sd), na.rm=T)
+amp_RF
+```
+
+
+#Composite Figures
+```{r}
+library(cowplot)
+temp2015<-plot_grid(tempfigH5a,tempfigRFa,tempfigSLa, ncol=3,  align="h", axis = "bt")  
+temp2015
+```
+```{r}
+library(cowplot)
+temp2020<-plot_grid(tempfigH5b,tempfigRFb,tempfigSLb, ncol=3,  align="h", axis = "bt")  
+temp2020
+```
+
+```{r}
+temp20152020<-plot_grid(tempfigH5a,tempfigRFa,tempfigSLa,tempfigH5b,tempfigRFb,
+ tempfigSLb, nrow=2,ncol=3,  align="h", axis = "bt")
+temp20152020
+```
+
+```{r}
+DHW20152020<-plot_grid(DHWfigH5a,DHWfigRFa,DHWfigSLa,
+ DHWfigH5b,DHWfigRFb,DHWfigSLb, nrow=2,ncol=3,  align="h", axis = "bt")
+DHW20152020
+```
+
+```{r}
+tempRCDL<-plot_grid(tempfigRCa,tempfigDLa,tempfigFP5a,tempfigRCb,tempfigDLb,nrow=2,ncol=3,align="h",axis = "bt")
+tempRCDL
+```
+
+#Comparison of mean daily temperature between HB5, RF and SL
+
+```{r}
+HB5RFSL<- merge(tempsumH5, tempsumRF, by=c("period","Temperature_clean","Date", "Site"), all=T)
+HB5RFSL<- merge(HB5RFSL, tempsumSL, by=c("period","Temperature_clean","Date", "Site"), all=T)
+HB5RFSL
+```
+
+```{r}
+unique(HB5RFSL$Site)
+```
+
+```{r}
+temp.lm <- lm(Temperature_clean~period*Site, data=HB5RFSL,na.action=na.exclude,  method= "REML")
+Anova(temp.lm, type=3)
+tukey3<- emmeans(temp.lm, list(pairwise ~ period), adjust = "tukey")
+tukey3
+```
+
+#Comparison of all temperature between HB5, RF and SL
+
+```{r}
+HB5RFSL2<- merge(abcd_2, allflat_2, by=c("period","Temperature_clean","Date", "Site"), all=T)
+HB5RFSL2<- merge(HB5RFSL2, allSL_2, by=c("period","Temperature_clean","Date", "Site"), all=T)
+HB5RFSL2
+```
+
+```{r}
+unique(HB5RFSL$Site)
+```
+
+```{r}
+temp2.lm <- lm(Temperature_clean~period*Site, data=HB5RFSL2,na.action=na.exclude)
+Anova(temp2.lm, type=3)
+tukey3<- emmeans(temp2.lm, list(pairwise ~ period:Site), adjust = "tukey")
+tukey3
+```
+```
+
