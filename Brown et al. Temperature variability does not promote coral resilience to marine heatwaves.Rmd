@@ -1,0 +1,358 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+#Analyses and figures for 'Temperature variability does not promote coral resilience to marine heatwaves'
+#by Kristen Brown 
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(Rmisc)
+library(lubridate)
+library(ggplot2)
+library(car)
+library(MASS)
+library(mgcv)
+library(MuMIn)
+library(emmeans)
+library(wesanderson)
+library(effects)
+library(lme4)
+library(nlme)
+library(sjPlot)
+```
+
+```{r}
+benthicmds<-read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Community Change/Benthic mds.csv", strip.white=T)
+benthicmds$Year<-as.factor(benthicmds$Year)
+benthicmds$Transect<-as.factor(benthicmds$Transect)
+benthicmds$Site<-as.factor(benthicmds$Site)
+benthicmds<-filter(benthicmds, Season == "Winter")
+head(benthicmds)
+```
+
+```{r}
+library(tidyr)
+benthic.long <- pivot_longer(benthicmds, cols=6:26, names_to = "Category", values_to = "Cover")
+benthic.long
+```
+```{r}
+transum <- summarySE(benthic.long, measurevar="Cover", groupvars=c("Year","Category", "Site"), na.rm=TRUE)
+transum
+```
+
+###All stats
+
+```{r}
+overall<-read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Community Change/Overall hard coral, algae and hard substrate stats.csv", strip.white=T)
+overall$Year<-as.factor(overall$Year)
+overall$Transect<-as.factor(overall$Transect)
+overall$Site<-as.factor(overall$Site)
+library(tidyr)
+overall <- pivot_longer(overall, cols=6:9, names_to = "Category", values_to = "Cover")
+overall
+```
+##Broad benthic
+
+####Stats
+```{r}
+overall.lm <- lm(Cover~Site*Year*Category, data=overall,na.action=na.exclude,  method= "REML")
+Anova(overall.lm, type=3)
+tukey3<- emmeans(overall.lm, list(pairwise ~ Category*Year), adjust = "tukey",simple = "Year")
+tukey3
+```
+####Figure
+```{r}
+overallsum <- summarySE(overall, measurevar="Cover", groupvars=c("Year", "Site","Category"), na.rm=TRUE)
+overallsum
+```
+
+```{r}
+overallsum$Year<- factor(overallsum$Year, levels =c("2015","2016","2020"))
+overallsum$Site<- factor(overallsum$Site, levels =c("Harry's Tower","Inner Reef Flat","Shallow Lagoon","Deep Lagoon","Harry's Bommie 5m","Harry's Bommie 8m","Fourth Point 5m", "Fourth Point 8m"))
+overallfig<-ggplot(overallsum, aes(y=Cover, x=reorder(Category, Cover), fill=Year, group=interaction(Year)))+
+  facet_wrap(Site~., nrow=2)+
+  geom_bar(color="black",stat="identity", position=position_dodge(), alpha=0.7)+
+  geom_errorbar(aes(ymin=Cover-se, ymax=Cover+se), width=0.3, position=position_dodge(.9))+
+  #coord_flip()+
+  scale_y_continuous(expression(Percent~cover~"(%)"))+
+  scale_x_discrete(expression(Broad~category),limits=c("All.hard.coral","All.oth.inv", "All.macroalgae", "Hard.substrate"))+ 
+  scale_color_manual("Year", values=c("2015"= 'paleturquoise1',"2016"='paleturquoise1',"2020"='indianred1'))+ #Manually choose the colors
+  scale_fill_manual("Year", values=c("2015"='orange2',"2016"='tomato3',"2020"='maroon4'))+ #Manually choose the colors
+  theme_classic()+
+   theme(axis.text.x=element_text(vjust=0.5, size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),
+        panel.background= element_rect(fill=NA, color='black'),
+        legend.title = element_blank(),
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(vjust=0.5, size=12))#making the axis title larger 
+overallfig
+```
+
+##Specific benthic
+
+####Stats
+```{r}
+benthic.lme <- lme(Cover~Site*Year*Category,random=~1|Transect, data=benthic.long,na.action=na.exclude,  method= "REML")
+Anova(benthic.lme, type=3)
+tukey3<- emmeans(benthic.lme, list(pairwise ~ Site*Category*Year), adjust = "tukey",simple = "Year")
+tukey3
+```
+
+```{r}
+benthic.lm <- lm(Cover~Site*Year*Category, data=benthic.long,na.action=na.exclude,  method= "REML")
+Anova(benthic.lm, type=3)
+tukey3<- emmeans(benthic.lm, list(pairwise ~ Site*Category*Year), adjust = "tukey",simple = "Year")
+tukey3
+```
+
+####Figure 
+```{r}
+specificsum$Year<- factor(specificsum$Year, levels =c("2020","2016","2015"))
+specificsum$Site<- factor(specificsum$Site, levels =c("Harry's Tower","Inner Reef Flat","Shallow Lagoon","Deep Lagoon","Harry's Bommie 5m","Harry's Bommie 8m","Fourth Point 5m","Fourth Point 8m"))
+specificsum$Category<- factor(specificsum$Category, levels =c("Other.hard","POR.ENC","POR.BRA","POR.MASS","FAV.LOB","POCI","ACR.PE","ACR.TCD","ACR.BRA"))
+specifichcfig<-ggplot(specificsum, aes(y=Cover, x=Category, fill=Year, group=interaction(Site,Year)))+
+  facet_wrap(Site~., scales="free", nrow=2)+
+  #geom_bar(stat="identity", position=position_stack())+
+  geom_bar(color="black",stat="identity", position=position_dodge(), alpha=0.7)+
+  geom_errorbar(aes(ymin=Cover-se, ymax=Cover+se), width=0.3, position=position_dodge(.9))+
+  coord_flip()+
+  scale_y_continuous(expression(Percent~cover~"(%)"))+
+  scale_x_discrete(expression(Hard~coral~category))+ 
+  scale_color_manual("Year", values=c("2015"= 'orange2',"2016"='tomato3',"2020"='plum4'))+ #Manually choose the colors
+  scale_fill_manual("Year", values=c("2015"='orange2',"2016"='tomato3',"2020"='maroon4'))+ #Manually choose the colors
+  theme_classic()+
+   theme(axis.text.x=element_text(vjust=0.5, size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        #legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_text(vjust=0.5, size=12),#making the axis title larger 
+        axis.title.y = element_text(vjust=0.5, size=12))#making the axis title larger 
+specifichcfig
+```
+
+##Relative change 15/16
+
+####Stats
+
+```{r}
+changestats<-read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Community Change/Absolute and relative change all for stats.csv", strip.white=T)
+changestats$Year<-as.factor(changestats$Year)
+changestats$Site<-as.factor(changestats$Site)
+changestats$Category<-as.factor(changestats$Category)
+changestats<-filter(changestats, Category =="Coral")
+changestats
+```
+
+```{r}
+change.lm <- lm(Relative~Year+Site, data=changestats,na.action=na.exclude)
+Anova(change.lm, type=3)
+tukey<- emmeans(change.lm, list(pairwise ~ Year), adjust = "tukey")
+tukey
+```
+
+```{r}
+decrease1516<-read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Community Change/Relative and absolute change in coral algae hard between 2015 and 2016.csv", strip.white=T)
+decrease1516$Site<-as.factor(decrease1516$Site)
+decrease1516$Category<-as.factor(decrease1516$Category)
+decrease1516
+```
+
+####Figures
+```{r}
+decrease1516$Site<- factor(decrease1516$Site, levels =c("Deep Lagoon","Shallow Lagoon","Inner Reef Flat","Harry's Tower","Fourth Point 8m","Fourth Point 5m","Harry's Bommie 8m","Harry's Bommie 5m"))
+decrease1516$Category<- factor(decrease1516$Category, levels =c("Coral","Algae","Hard substrate"))
+decrease1516fig<-ggplot(decrease1516, aes(y=Relative, x=Site,  color=Relative,fill=Relative,group=1))+
+  facet_wrap(~Category)+
+  geom_point(size=5, alpha=0.9, pch=21,color="black")+
+  geom_segment(aes(x=Site, xend=Site, y=0, yend=Relative)) +
+  geom_hline(yintercept = 0, linetype="solid", color = 'black', size=0.5, show.legend = TRUE)+
+  coord_flip()+
+  scale_y_continuous(expression(Relative~change~"in"~cover~"(%)"),limits=c(-180,180))+
+  scale_fill_gradientn(colours=c("indianred4","indianred2","white", "paleturquoise1","paleturquoise2","paleturquoise3","paleturquoise4"), na.value = "grey98",limits = c(-100, 200))+ 
+ scale_color_gradientn(colours=c("indianred4","indianred2","white", "paleturquoise1","paleturquoise2","paleturquoise3","paleturquoise4"), na.value = "grey98",limits = c(-100, 200))+ 
+  theme_classic()+
+   theme(axis.text.x=element_text(vjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),
+        panel.background= element_rect(fill=NA, color='black'),
+        legend.title = element_blank(),
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_text(vjust=0.5, size=12),#making the axis title larger 
+        axis.title.y = element_text(vjust=0.5, size=12),
+        strip.text = element_text(size=12))#making the axis title larger 
+decrease1516fig
+```
+
+```{r}
+decrease<-read.csv("/Users/imkri/Desktop/Penn postdoc/Heron Island Community Change/Absolute and relative change in coral and algae between 2016 and 2020 all hard.csv", strip.white=T)
+decrease$Site<-as.factor(decrease$Site)
+decrease$Category<-as.factor(decrease$Category)
+decrease
+```
+
+```{r}
+decrease$Site<- factor(decrease$Site, levels =c("Deep Lagoon","Shallow Lagoon","Inner Reef Flat","Harry's Tower","Fourth Point 8m","Fourth Point 5m","Harry's Bommie 8m","Harry's Bommie 5m"))
+decrease$Category<- factor(decrease$Category, levels =c("Coral","Algae","Hard substrate"))
+decreasefig<-ggplot(decrease, aes(y=Relative, x=Site,  color=Relative,fill=Relative,group=1))+
+  facet_grid(~Category)+
+  geom_point(size=5, alpha=0.9, pch=21,color="black")+
+  geom_segment(aes(x=Site, xend=Site, y=0, yend=Relative)) +
+  geom_hline(yintercept = 0, linetype="solid", color = 'black', size=0.5, show.legend = TRUE)+
+  coord_flip()+
+  scale_y_continuous(expression(Relative~change~"in"~cover~"(%)"),limits=c(-180,180))+
+  scale_fill_gradientn(colours=c("indianred4","indianred2","white", "paleturquoise1","paleturquoise2","paleturquoise3","paleturquoise4"), na.value = "grey98",limits = c(-100, 200))+ 
+ scale_color_gradientn(colours=c("indianred4","indianred2","white", "paleturquoise1","paleturquoise2","paleturquoise3","paleturquoise4"), na.value = "grey98",limits = c(-100, 200))+ 
+  theme_classic()+
+   theme(axis.text.x=element_text(vjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),
+        panel.background= element_rect(fill=NA, color='black'),
+        legend.title = element_blank(),
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_text(vjust=0.5, size=12),#making the axis title larger 
+        axis.title.y = element_text(vjust=0.5, size=12),
+        strip.text = element_text(size=12))#making the axis title larger 
+decreasefig
+```
+
+```{r}
+library(cowplot)
+decreaseboth<-plot_grid(decrease1516fig,decreasefig, nrow=2,  align="h", axis = "bt")  
+decreaseboth
+```
+
+##PERMANOVA
+
+```{r}
+mds2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron Island Community Change/mds with temperature metrics.csv", strip.white=T)
+mds2$Transect<-as.factor(mds2$Transect)
+mds2$Site<-as.factor(mds2$Site)
+mds2
+```
+
+```{r}
+colnames(mds2)
+```
+
+```{r}
+library(vegan)
+benthic.mds<-  metaMDS(mds2[,(5:25)], k=2, autotransform = TRUE)
+benthic.adonis<-adonis(mds2[,(5:25)] ~Site*Year, data=mds2, permutations = 9999, na.rm=T)
+benthic.adonis
+```
+
+```{r}
+library(pairwiseAdonis)
+pairwise.adonis2(mds2[,(5:25)] ~Year, data=mds2, permutations = 9999, na.rm=T)
+```
+
+##PCA
+
+```{r}
+benthic.rda<- rda(mds2[,(5:25)], scale=TRUE)
+```
+
+```{r}
+summary(benthic.rda, display=NULL)
+```
+
+```{r}
+screeplot(benthic.rda)
+abline(a=1, b=0)
+```
+
+```{r}
+biplot(benthic.rda, scaling=1, main='Scaling')
+```
+
+```{r}
+biplot(benthic.rda, scaling=2, main='Scaling')
+```
+
+```{r}
+pca.envfit<- envfit(benthic.rda, mds2[,c("Temperature_max","Temperature_mean", "Amplitude","DHW")], na.rm=TRUE, permu= 9999)
+```
+
+```{r}
+pca.envfit
+```
+
+```{r}
+pca.envfit.df<-as.data.frame(pca.envfit$vectors$arrows*sqrt(pca.envfit$vectors$r))
+pca.envfit.df$species<-rownames(pca.envfit.df)
+```
+
+```{r}
+pca.sites.scores<- as.data.frame(scores(benthic.rda, display='sites'))
+pca.sites.scores<- data.frame(pca.sites.scores, mds2)
+pca.species.scores<- as.data.frame(scores(benthic.rda, display='species'))
+pca.species.scores$Species<- rownames(pca.species.scores)
+pca.species.scores
+```
+
+```{r}
+include_list<- c("ACR.TCD","ACR.BRA","ACR.PE","POCI","Macroalgae", "Turf.Cyano",       "Sand.Sed",     "Coral.Rubble", "Dead",         "Bare.Rock")
+pca.species.scores<-pca.species.scores[include_list,]
+```
+
+```{r}
+include_list2<- c("Temperature_max", "Amplitude", "DHW" )
+pca.envfit.df<- pca.envfit.df[include_list2,]
+```
+
+```{r}
+hjust<- ifelse(pca.species.scores$PC1>0,0,1)
+vjust<- ifelse(pca.species.scores$PC2>0,0,1)
+g<-ggplot()+
+  geom_point(data=pca.sites.scores, aes(y=PC2, x=PC1, color=Year), size=5, alpha=0.6)+
+  geom_hline(yintercept = 0, linetype = 2, alpha = 0.8, color = "darkgray") + 
+  geom_vline(xintercept = 0, linetype = 2, alpha = 0.8, color = "darkgray") +
+  geom_text_repel(data=pca.envfit.df,aes(x=PC1,y=PC2,label= species, show.legend=FALSE))+
+  geom_segment(data=pca.envfit.df,aes(x=0,xend=PC1,y=0,yend=PC2), linetype='solid', arrow=arrow(length=unit(0.3, 'cm')), color='black', alpha=0.9, show.legend=FALSE) + 
+  #geom_text(data=pca.sites.scores, aes(y=PC2, x=PC1, hjust=-0.2, color=Year), show.legend=FALSE)+
+  geom_segment(data=pca.species.scores, aes(y=0, x=0, yend=PC2, xend=PC1), arrow=arrow(length=unit(0.3, 'lines')),color='black', linetype='dashed',alpha=0.9)+
+  geom_text(data=pca.species.scores, aes(y=PC2, x=PC1, label=Species), color="black", hjust=hjust, vjust=vjust)+
+    scale_color_gradientn(colours=c("orange2","tomato2","tomato2","tomato2","tomato2","maroon4"), na.value = "grey98")+
+  theme_classic()
+g
+```
+
+```{r}
+g<- g+theme(axis.text.y=element_blank(),
+            axis.text.x=element_blank(), 
+            panel.background= element_rect(fill=NA, color='black'))
+g
+```
+
+```{r}
+eig<-eigenvals(benthic.rda)
+eig
+```
+
+```{r}
+paste(names(eig[2]), sprintf('(%0.1f%% explained var.)', 100 * eig[2]/sum(eig)))
+```
+
+```{r}
+g<- g + scale_y_continuous(
+  paste(names(eig[2]), sprintf('(%0.1f%% explained var.)', 100 * eig[2]/sum(eig))))+
+  scale_x_continuous(paste(names(eig[1]), sprintf('(%0.1f%% explained var.)', 100 * eig[1]/sum(eig))))
+g
+```
+```{r}
+veg.hull= pca.sites.scores %>% group_by(Site) %>%
+  do({
+    x=.
+    x[chull(x$PC1, x$PC2),]
+  })
+```
+
+```{r}
+g+ geom_polygon(data=veg.hull, aes(y=PC2, x=PC1,fill=Site), alpha=0.2)+scale_fill_manual("Site", values=c("Harry's Bommie 5m"= 'grey35',"Harry's Bommie 8m"='grey30',"Fourth Point 5m"='grey45', "Fourth Point 8m"='grey40', "Harry's Tower"='grey80', "Inner Reef Flat"='salmon1', "Shallow Lagoon"='tomato3', "Deep Lagoon"="red4"))
+```
+
+
